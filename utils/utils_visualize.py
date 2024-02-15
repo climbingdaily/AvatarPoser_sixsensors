@@ -1,13 +1,14 @@
 import torch
-import cv2
 import os
-import numpy as np
+
+import cv2
 import trimesh
-from human_body_prior.body_model.body_model import BodyModel
-from human_body_prior.tools.omni_tools import copy2cpu as c2c
-from body_visualizer.tools.vis_tools import colors
-from body_visualizer.mesh.mesh_viewer import MeshViewer
-from body_visualizer.mesh.sphere import points_to_spheres
+import numpy as np
+from trdParties.human_body_prior.body_model.body_model import BodyModel
+from trdParties.human_body_prior.tools.omni_tools import copy2cpu as c2c
+from trdParties.body_visualizer.tools.vis_tools import colors
+from trdParties.body_visualizer.mesh.mesh_viewer import MeshViewer
+from trdParties.body_visualizer.mesh.sphere import points_to_spheres
 import trimesh.util as util
 from psbody.mesh import Mesh
 

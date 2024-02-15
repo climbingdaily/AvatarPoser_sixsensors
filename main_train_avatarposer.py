@@ -2,18 +2,19 @@ import os.path
 import math
 import argparse
 import random
-import numpy as np
-from collections import OrderedDict
 import logging
+import time
+
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
+
 from utils import utils_logger
 from utils import utils_option as option
+from utils import utils_visualize as vis
+
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
-from utils import utils_transform
-import pickle
-from utils import utils_visualize as vis
 
 
 save_animation = False
@@ -29,8 +30,9 @@ def main(json_path='options/train_avatarposer.json'):
 
     parser = argparse.ArgumentParser()
     parser.add_argument('-opt', type=str, default=json_path, help='Path to option JSON file.')
-
-    opt = option.parse(parser.parse_args().opt, is_train=True)
+    args = parser.parse_args()
+    
+    opt = option.parse(args.opt, is_train=True)
 
     paths = (path for key, path in opt['path'].items() if 'pretrained' not in key)
     if isinstance(paths, str):
@@ -48,7 +50,6 @@ def main(json_path='options/train_avatarposer.json'):
     init_iter, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
     opt['path']['pretrained_netG'] = init_path_G
     current_step = init_iter
-
     # --<--<--<--<--<--<--<--<--<--<--<--<--<-
 
     # ----------------------------------------
@@ -99,16 +100,15 @@ def main(json_path='options/train_avatarposer.json'):
             train_size = int(math.ceil(len(train_set) / dataset_opt['dataloader_batch_size']))
             logger.info('Number of train images: {:,d}, iters: {:,d}'.format(len(train_set), train_size))
             train_loader = DataLoader(train_set,
-                                      batch_size=dataset_opt['dataloader_batch_size'],
-                                      shuffle=dataset_opt['dataloader_shuffle'],
-                                      num_workers=dataset_opt['dataloader_num_workers'],
-                                      drop_last=True,
-                                      pin_memory=True)
+                                      batch_size  = dataset_opt['dataloader_batch_size'],
+                                      shuffle     = dataset_opt['dataloader_shuffle'],
+                                      num_workers = dataset_opt['dataloader_num_workers'],
+                                      drop_last   = True,
+                                      pin_memory  = True)
         elif phase == 'test':
             test_set = define_Dataset(dataset_opt)
             test_loader = DataLoader(test_set, batch_size=dataset_opt['dataloader_batch_size'],
-                                     shuffle=False, num_workers=1,
-                                     drop_last=False, pin_memory=True)
+                                     shuffle=False, num_workers=1, drop_last=False, pin_memory=True)
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
 
@@ -133,26 +133,18 @@ def main(json_path='options/train_avatarposer.json'):
     # Step--4 (main training)
     # ----------------------------------------
     '''
+
+    start_time = time.time()
     for epoch in range(1000000):  # keep running
         for i, train_data in enumerate(train_loader):
 
             current_step += 1
-            # -------------------------------
-            # 1) feed patch pairs
-            # -------------------------------
+
+            print(f"step: {current_step} | time {time.time()-start_time:.1f}\r", end='', flush=True)
             
             model.feed_data(train_data)
-
-            # -------------------------------
-            # 2) optimize parameters
-            # -------------------------------
-            model.optimize_parameters(current_step)
-
-            # -------------------------------
-            # 3) update learning rate
-            # -------------------------------
-            model.update_learning_rate(current_step)
-
+            model.optimize_parameters(current_step)     # loss.backward() and optimizer.step()
+            model.update_learning_rate(current_step)    # update learning rate
 
             # -------------------------------
             # merge bnorm

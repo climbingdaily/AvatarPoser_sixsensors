@@ -1,7 +1,7 @@
 import numpy as np
 from torch.nn import functional as F
-from human_body_prior.tools import tgm_conversion as tgm
-from human_body_prior.tools.rotation_tools import aa2matrot,local2global_pose,matrot2aa
+from trdParties.human_body_prior.tools import tgm_conversion as tgm
+from trdParties.human_body_prior.tools.rotation_tools import aa2matrot,local2global_pose,matrot2aa
 
 import torch
 

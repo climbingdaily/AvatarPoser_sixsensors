@@ -3,3 +3,15 @@ results
 *.pkl
 *fps60
 **/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/*.pyi
+**/*.pyz
+*__init__.py
+
+*.npz
+
+.vscode
+3rdParties/
+trdParties/

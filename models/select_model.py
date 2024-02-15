@@ -1,7 +1,7 @@
 import functools
 import torch
 from torch.nn import init
-from human_body_prior.body_model.body_model import BodyModel
+from trdParties.human_body_prior.body_model.body_model import BodyModel
 import os
 
 
@@ -41,27 +41,27 @@ def define_Model(opt):
 
 
 def define_G(opt):
-    opt_net = opt['netG']
-    net_type = opt_net['net_type']
-    device = torch.device('cuda' if opt['gpu_ids'] else 'cpu')
-    support_dir = opt['support_dir']
+    opt_net        = opt['netG']
+    net_type       = opt_net['net_type']
+    device         = torch.device('cuda' if opt['gpu_ids'] else 'cpu')
+    support_dir    = opt['support_dir']
     subject_gender = "male"
-    bm_fname = os.path.join(support_dir, 'body_models/smplh/{}/model.npz'.format(subject_gender))
-    dmpl_fname = os.path.join(support_dir, 'body_models/dmpls/{}/model.npz'.format(subject_gender))
-    num_betas = 16 # number of body parameters
-    num_dmpls = 8 # number of DMPL parameters
-    body_model = BodyModel(bm_fname=bm_fname, num_betas=num_betas, num_dmpls=num_dmpls, dmpl_fname=dmpl_fname).to(device)
+    bm_fname       = os.path.join(support_dir, 'body_models/smplh/{}/model.npz'.format(subject_gender))
+    dmpl_fname     = os.path.join(support_dir, 'body_models/dmpls/{}/model.npz'.format(subject_gender))
+    num_betas      = 16 # number of body parameters
+    num_dmpls      = 8 # number of DMPL parameters
+    body_model     = BodyModel(bm_fname=bm_fname, num_betas=num_betas, num_dmpls=num_dmpls, dmpl_fname=dmpl_fname).to(device)
 
 
     if net_type == 'AvatarPoser':
         from models.network import AvatarPoser as net
-        netG = net(input_dim=opt_net['input_dim'],
-                   output_dim=opt_net['output_dim'],
-                   num_layer=opt_net['num_layer'],
-                   embed_dim=opt_net['embed_dim'],
-                   nhead = opt_net['nhead'],
+        netG = net(input_dim  = opt_net['input_dim'],
+                   output_dim = opt_net['output_dim'],
+                   num_layer  = opt_net['num_layer'],
+                   embed_dim  = opt_net['embed_dim'],
+                   nhead      = opt_net['nhead'],
                    body_model = body_model,
-                   device = device)
+                   device     = device)
 
     else:
         raise NotImplementedError('netG [{:s}] is not found.'.format(net_type))

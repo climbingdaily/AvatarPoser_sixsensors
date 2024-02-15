@@ -3,9 +3,9 @@ import numpy as np
 import os
 import time
 from torch.utils.data import Dataset, DataLoader
-from human_body_prior.body_model.body_model import BodyModel
-from human_body_prior.tools.omni_tools import copy2cpu as c2c
-from human_body_prior.tools.rotation_tools import aa2matrot,matrot2aa,local2global_pose
+from trdParties.human_body_prior.body_model.body_model import BodyModel
+from trdParties.human_body_prior.tools.omni_tools import copy2cpu as c2c
+from trdParties.human_body_prior.tools.rotation_tools import aa2matrot,matrot2aa,local2global_pose
 import random
 from utils import utils_transform
 
@@ -59,39 +59,36 @@ class AMASS_Dataset(Dataset):
                 with open(filename, 'rb') as f:
                     data = pickle.load(f)
 
-
         rotation_local_full_gt_list = data['rotation_local_full_gt_list']
-        hmd_position_global_full_gt_list = data['hmd_position_global_full_gt_list']
-        body_parms_list = data['body_parms_list']
-        head_global_trans_list = data['head_global_trans_list']
-
+        input_joints_params         = data['input_joints_params' if 'input_joints_params' in data else 'hmd_position_global_full_gt_list']
+        body_parms_list             = data['body_parms_list']
+        head_global_trans_list      = data['head_global_trans_list']
 
         if self.opt['phase'] == 'train':
-            
-            frame = np.random.randint(hmd_position_global_full_gt_list.shape[0] - self.window_size + 1 - 1)
-            input_hmd  = hmd_position_global_full_gt_list[frame:frame + self.window_size+1,...].reshape(self.window_size+1, -1).float()
-            output_gt = rotation_local_full_gt_list[frame + self.window_size - 1 : frame + self.window_size - 1 + 1,...].float()
+            ws = self.window_size
+            frame      = np.random.randint(input_joints_params.shape[0] - ws)
+            input_data = input_joints_params[frame:frame + ws+1,...].reshape(ws+1, -1).float()
+            output_gt  = rotation_local_full_gt_list[frame + ws - 1 : frame + ws,...].float()
 
-            return {'L': input_hmd,
-                    'H': output_gt,
+            return {'in': input_data,
+                    'gt': output_gt,
                     'P': 1,
-                    'Head_trans_global':head_global_trans_list[frame + self.window_size - 1:frame + self.window_size - 1+1,...],
-                    'pos_pelvis_gt':body_parms_list['trans'][frame + self.window_size - 1:frame + self.window_size - 1+1,...],
-                    'vel_pelvis_gt':body_parms_list['trans'][frame + self.window_size - 1:frame + self.window_size - 1+1,...]-body_parms_list['trans'][frame + self.window_size - 2:frame + self.window_size - 2+1,...]
+                    'Head_trans_global': head_global_trans_list[frame + ws - 1:frame + ws,...],
+                    'pos_pelvis_gt'    : body_parms_list['trans'][frame + ws: frame + ws - 1,...],
+                    'vel_pelvis_gt'    : body_parms_list['trans'][frame + ws: frame + ws - 1,...] - body_parms_list['trans'][frame + ws - 1:frame + ws,...]
                     }
 
         else:
+            input_data = input_joints_params.reshape(input_joints_params.shape[0], -1)[1:]
+            output_gt  = rotation_local_full_gt_list[1:]
 
-            input_hmd  = hmd_position_global_full_gt_list.reshape(hmd_position_global_full_gt_list.shape[0], -1)[1:]
-            output_gt = rotation_local_full_gt_list[1:]
-
-            return {'L': input_hmd.float(),
-                    'H': output_gt.float(),
+            return {'in': input_data.float(),
+                    'gt': output_gt.float(),
                     'P': body_parms_list,
                     'Head_trans_global':head_global_trans_list[1:],
                     'pos_pelvis_gt':body_parms_list['trans'][2:],
                     'vel_pelvis_gt':body_parms_list['trans'][2:]-body_parms_list['trans'][1:-1]
                     }
 
-
+        pass
     

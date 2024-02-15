@@ -1,7 +1,6 @@
 import sys
 import datetime
 import logging
-from IPython import embed
 '''
 # --------------------------------------------
 # Kai Zhang (github: https://github.com/cszn)

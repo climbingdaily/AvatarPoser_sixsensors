@@ -18,10 +18,10 @@ from trdParties.human_body_prior.tools.rotation_tools import aa2matrot,local2glo
 
 
 
-class ModelAvatarPoser(ModelBase):
+class ModelSixPoser(ModelBase):
     """Train with pixel loss"""
     def __init__(self, opt):
-        super(ModelAvatarPoser, self).__init__(opt)
+        super(ModelSixPoser, self).__init__(opt)
         # ------------------------------------
         # define network
         # ------------------------------------
@@ -148,11 +148,11 @@ class ModelAvatarPoser(ModelBase):
     def feed_data(self, data, need_H=True, test=False):
         self.input = data['in'].to(self.device)
         self.P = data['P']
-        self.Head_trans_global    = data['Head_trans_global'].to(self.device)  # ! shape: [B, 1, 4, 4]
-        self.H_global_orientation = data['gt'].squeeze()[:,:6].to(self.device) # ! shape: [B, 6]
-        self.H_joint_rotation     = data['gt'].squeeze()[:,6:].to(self.device) # ! shape: [B, 126]
-        # self.H                    = torch.cat([self.H_global_orientation, self.H_joint_rotation],dim=-1).to(self.device)
+        self.Head_trans_global    = data['Head_trans_global'].to(self.device)
+        self.H_global_orientation = data['gt'].squeeze()[:,:6].to(self.device)
+        self.H_joint_rotation     = data['gt'].squeeze()[:,6:].to(self.device)
         self.H_joint_position     = self.netG.module.fk_module(self.H_global_orientation, self.H_joint_rotation , self.bm)
+        # self.H                    = torch.cat([self.H_global_orientation, self.H_joint_rotation],dim=-1).to(self.device)
 
     # ----------------------------------------
     # feed L to netG
@@ -160,24 +160,24 @@ class ModelAvatarPoser(ModelBase):
     def netG_forward(self):
         self.E_global_orientation, self.E_joint_rotation, self.E_joint_position = self.netG(self.input)
 
+
     # ----------------------------------------
     # update parameters and get loss
     # ----------------------------------------
     def optimize_parameters(self, current_step):
         self.G_optimizer.zero_grad()
         self.netG_forward()
-        
         global_orientation_loss = self.G_lossfn(self.E_global_orientation, self.H_global_orientation)
-        joint_rotation_loss     = self.G_lossfn(self.E_joint_rotation, self.H_joint_rotation)
-        joint_position_loss     = self.G_lossfn(self.E_joint_position, self.H_joint_position)
-
-        loss = 0.02*global_orientation_loss + joint_rotation_loss + joint_position_loss
+        joint_rotation_loss = self.G_lossfn(self.E_joint_rotation, self.H_joint_rotation)
+        joint_position_loss = self.G_lossfn(self.E_joint_position, self.H_joint_position) 
+        loss =  0.02*global_orientation_loss + joint_rotation_loss + joint_position_loss
         loss.backward()
 
 
         # ------------------------------------
-        # clip_grad: `clip_grad_norm` helps prevent the exploding gradient problem.
+        # clip_grad
         # ------------------------------------
+        # `clip_grad_norm` helps prevent the exploding gradient problem.
         G_optimizer_clipgrad = self.opt_train['G_optimizer_clipgrad'] if self.opt_train['G_optimizer_clipgrad'] else 0
         if G_optimizer_clipgrad > 0:
             torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=self.opt_train['G_optimizer_clipgrad'], norm_type=2)
