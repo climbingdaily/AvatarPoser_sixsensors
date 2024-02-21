@@ -3,8 +3,6 @@ def define_Dataset(dataset_opt):
 
     if dataset_type in ['amass']:
         from data.dataset_amass import AMASS_Dataset as D
-
-
     else:
         raise NotImplementedError('Dataset [{:s}] is not found.'.format(dataset_type))
 

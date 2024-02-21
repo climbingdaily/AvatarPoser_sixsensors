@@ -33,14 +33,6 @@ class ModelAvatarPoser(ModelBase):
         self.window_size = self.opt['netG']['window_size']
         self.bm = self.netG.module.body_model
 
-
-    """
-    # ----------------------------------------
-    # Preparation before training with data
-    # Save model during training
-    # ----------------------------------------
-    """
-
     # ----------------------------------------
     # initialize training
     # ----------------------------------------
@@ -56,15 +48,20 @@ class ModelAvatarPoser(ModelBase):
     def init_test(self):
         self.load(test=True)                           # load model
         self.log_dict = OrderedDict()         # log
+
     # ----------------------------------------
     # load pre-trained G model
     # ----------------------------------------
     def load(self, test=False):
+
         load_path_G = self.opt['path']['pretrained_netG'] if test == False else self.opt['path']['pretrained']
+        print(f"[{'TEST' if test else 'Train'}]'Loading model for G [{load_path_G}]")
+
         if load_path_G is not None:
             print('Loading model for G [{:s}] ...'.format(load_path_G))
             self.load_network(load_path_G, self.netG, strict=self.opt_train['G_param_strict'], param_key='params')
         load_path_E = self.opt['path']['pretrained_netE']
+
         if self.opt_train['E_decay'] > 0:
             if load_path_E is not None:
                 print('Loading model for E [{:s}] ...'.format(load_path_E))
@@ -122,8 +119,9 @@ class ModelAvatarPoser(ModelBase):
                 G_optim_params.append(v)
             else:
                 print('Params [{:s}] will not optimize.'.format(k))
-        self.G_optimizer = Adam(G_optim_params, lr=self.opt_train['G_optimizer_lr'], weight_decay=0)
-
+        self.G_optimizer = Adam(G_optim_params, 
+                                lr = self.opt_train['G_optimizer_lr'], 
+                                weight_decay = self.opt_train['G_optimizer_wd'])
 
 
     # ----------------------------------------
@@ -135,24 +133,17 @@ class ModelAvatarPoser(ModelBase):
                                                         self.opt_train['G_scheduler_gamma']
                                                         ))
 
-    """
-    # ----------------------------------------
-    # Optimization during training with data
-    # Testing/evaluation
-    # ----------------------------------------
-    """
-
     # ----------------------------------------
     # feed L/H data
     # ----------------------------------------
     def feed_data(self, data, need_H=True, test=False):
-        self.input = data['in'].to(self.device)
-        self.P = data['P']
+        self.input                = data['in'].to(self.device)                 # ! shape: [B, T, 108]
+        self.P                    = data['P']                                  # ! shape: [B, ]
         self.Head_trans_global    = data['Head_trans_global'].to(self.device)  # ! shape: [B, 1, 4, 4]
         self.H_global_orientation = data['gt'].squeeze()[:,:6].to(self.device) # ! shape: [B, 6]
         self.H_joint_rotation     = data['gt'].squeeze()[:,6:].to(self.device) # ! shape: [B, 126]
-        # self.H                    = torch.cat([self.H_global_orientation, self.H_joint_rotation],dim=-1).to(self.device)
         self.H_joint_position     = self.netG.module.fk_module(self.H_global_orientation, self.H_joint_rotation , self.bm)
+        # self.H                    = torch.cat([self.H_global_orientation, self.H_joint_rotation],dim=-1).to(self.device)
 
     # ----------------------------------------
     # feed L to netG
@@ -171,7 +162,7 @@ class ModelAvatarPoser(ModelBase):
         joint_rotation_loss     = self.G_lossfn(self.E_joint_rotation, self.H_joint_rotation)
         joint_position_loss     = self.G_lossfn(self.E_joint_position, self.H_joint_position)
 
-        loss = 0.02*global_orientation_loss + joint_rotation_loss + joint_position_loss
+        loss = 0.02 * global_orientation_loss + joint_rotation_loss + joint_position_loss
         loss.backward()
 
 
@@ -199,7 +190,6 @@ class ModelAvatarPoser(ModelBase):
         self.log_dict['joint_rotation_loss'] = joint_rotation_loss.item()
         self.log_dict['joint_position_loss'] = joint_position_loss.item()
 
-
         if self.opt_train['E_decay'] > 0:
             self.update_E(self.opt_train['E_decay'])
 
@@ -208,123 +198,141 @@ class ModelAvatarPoser(ModelBase):
     # ----------------------------------------
     def test(self):
 
-            self.netG.eval()
+        self.netG.eval()
 
-            self.input = self.input.squeeze()
-      
-            self.Head_trans_global = self.Head_trans_global.squeeze()
-            window_size = self.opt['datasets']['train']['window_size']
+        self.input = self.input.squeeze()
+    
+        window_size = self.opt['datasets']['train']['window_size']
 
-            input_singleframe = False
-            with torch.no_grad():
+        input_singleframe = False
+        with torch.no_grad():
 
-                if self.input.shape[0] < window_size:
+            if self.input.shape[0] < window_size:
 
+                if input_singleframe:
+                    input_list = []
+                    for frame_idx in range(0,self.input.shape[0]):
+                        input_list.append(self.input[[frame_idx]].unsqueeze(0))
+                    input_tensor = torch.cat(input_list, dim = 0)
 
-                    if input_singleframe:
-                        input_list = []
-                        for frame_idx in range(0,self.input.shape[0]):
-                            input_list.append(self.input[[frame_idx]].unsqueeze(0))
-                        input_tensor = torch.cat(input_list, dim = 0)
+                    E_global_orientation_tensor, E_joint_rotation_tensor = self.netG(input_tensor,do_fk=False)
+                else:
+                    E_global_orientation_list = []  
+                    E_joint_rotation_list = []                     
 
-                        E_global_orientation_tensor, E_joint_rotation_tensor = self.netG(input_tensor,do_fk=False)
-                    else:
-                        E_global_orientation_list = []  
-                        E_joint_rotation_list = []                     
+                    for frame_idx in range(0,self.input.shape[0]):
+                        E_global_orientation, E_joint_rotation = self.netG(self.input[0:frame_idx+1].unsqueeze(0), do_fk=False)
+                        E_global_orientation_list.append(E_global_orientation)
+                        E_joint_rotation_list.append(E_joint_rotation)
+                    E_global_orientation_tensor = torch.cat(E_global_orientation_list, dim=0)
+                    E_joint_rotation_tensor = torch.cat(E_joint_rotation_list, dim=0)
 
-                        for frame_idx in range(0,self.input.shape[0]):
-                            E_global_orientation, E_joint_rotation = self.netG(self.input[0:frame_idx+1].unsqueeze(0), do_fk=False)
-                            E_global_orientation_list.append(E_global_orientation)
-                            E_joint_rotation_list.append(E_joint_rotation)
-                        E_global_orientation_tensor = torch.cat(E_global_orientation_list, dim=0)
-                        E_joint_rotation_tensor = torch.cat(E_joint_rotation_list, dim=0)
+            else:  
 
-                else:  
+                input_list_1 = []
+                input_list_2 = []
 
+                if input_singleframe:
+                    for frame_idx in range(0,window_size):
+                        input_list_1.append(self.input[[frame_idx]].unsqueeze(0))
+                    input_tensor_1 = torch.cat(input_list_1, dim = 0)
+                    E_global_orientation_1, E_joint_rotation_1 = self.netG(input_tensor_1,do_fk=False)
+                else:
+                    E_global_orientation_list_1 = []  
+                    E_joint_rotation_list_1 = []          
+                    for frame_idx in range(0,window_size):
+                        E_global_orientation, E_joint_rotation = self.netG(self.input[0:frame_idx+1].unsqueeze(0), do_fk=False)
+                        E_global_orientation_list_1.append(E_global_orientation)
+                        E_joint_rotation_list_1.append(E_joint_rotation)
+                        
+                    E_global_orientation_1 = torch.cat(E_global_orientation_list_1, dim=0)
+                    E_joint_rotation_1 = torch.cat(E_joint_rotation_list_1, dim=0)
 
-                    input_list_1 = []
-                    input_list_2 = []
+                # Process the rest of the sequence, Set the maximum length of each input segment
+                max_length = 256  
+                results_global_orientation = []
+                results_joint_rotation = []
 
-                    if input_singleframe:
-                        for frame_idx in range(0,window_size):
-                            input_list_1.append(self.input[[frame_idx]].unsqueeze(0))
-                        input_tensor_1 = torch.cat(input_list_1, dim = 0)
-                        E_global_orientation_1, E_joint_rotation_1 = self.netG(input_tensor_1,do_fk=False)
-                    else:
-                        E_global_orientation_list_1 = []  
-                        E_joint_rotation_list_1 = []          
-                        for frame_idx in range(0,window_size):
-                            E_global_orientation, E_joint_rotation = self.netG(self.input[0:frame_idx+1].unsqueeze(0), do_fk=False)
-                            E_global_orientation_list_1.append(E_global_orientation)
-                            E_joint_rotation_list_1.append(E_joint_rotation)
-                        E_global_orientation_1 = torch.cat(E_global_orientation_list_1, dim=0)
-                        E_joint_rotation_1 = torch.cat(E_joint_rotation_list_1, dim=0)
+                for start_idx in range(window_size, self.input.shape[0], max_length):
+                    end_idx = min(start_idx + max_length, self.input.shape[0])
+                    segment_list = []
+                    
+                    for frame_idx in range(start_idx, end_idx):
+                        segment = self.input[frame_idx - window_size + 1:frame_idx + 1, ...]
+                        if segment.shape[1] == 54:
+                            segment[:, 36:45] = (segment[:, 36:45].reshape(-1, 3, 3) - segment[:, 36:39].unsqueeze(1)).reshape(-1, 9) # subtract the global translation
+                        elif segment.shape[1] == 108:
+                            segment[:, 72:90] = (segment[:, 72:90].reshape(-1, 6, 3) - segment[:, 72:75].unsqueeze(1)).reshape(-1, 18)
+                        segment_list.append(segment.unsqueeze(0))
 
-                    for frame_idx in range(window_size,self.input.shape[0]):
-                        input_list_2.append(self.input[frame_idx-window_size+1:frame_idx+1,...].unsqueeze(0))
-                    input_tensor_2 = torch.cat(input_list_2, dim = 0)
-                    E_global_orientation_2, E_joint_rotation_2 = self.netG(input_tensor_2,do_fk=False)
+                    if segment_list:
+                        input_tensor_segment = torch.cat(segment_list, dim=0)
+                        E_global_orientation_segment, E_joint_rotation_segment = self.netG(input_tensor_segment, do_fk=False)
+                        
+                        # Store results for later concatenation
+                        results_global_orientation.append(E_global_orientation_segment)
+                        results_joint_rotation.append(E_joint_rotation_segment)
 
-                    E_global_orientation_tensor = torch.cat([E_global_orientation_1,E_global_orientation_2], dim=0)
-                    E_joint_rotation_tensor = torch.cat([E_joint_rotation_1,E_joint_rotation_2], dim=0)
+                # Concatenate results from all segments
+                E_global_orientation_2 = torch.cat(results_global_orientation, dim=0) if results_global_orientation else torch.Tensor()
+                E_joint_rotation_2 = torch.cat(results_joint_rotation, dim=0) if results_joint_rotation else torch.Tensor()
 
+                E_global_orientation_tensor = torch.cat([E_global_orientation_1,E_global_orientation_2], dim=0)
+                E_joint_rotation_tensor     = torch.cat([E_joint_rotation_1,E_joint_rotation_2], dim=0)
 
-            self.E_global_orientation = E_global_orientation_tensor
-            self.E_joint_rotation = E_joint_rotation_tensor
-            self.E = torch.cat([E_global_orientation_tensor, E_joint_rotation_tensor],dim=-1).to(self.device)
+        self.E_global_orientation = E_global_orientation_tensor
+        self.E_joint_rotation     = E_joint_rotation_tensor
+        self.E = torch.cat([E_global_orientation_tensor, E_joint_rotation_tensor],dim=-1).to(self.device)
 
-            predicted_angle = utils_transform.sixd2aa(self.E[:,:132].reshape(-1,6).detach()).reshape(self.E[:,:132].shape[0],-1).float()
+        predicted_angle = utils_transform.sixd2aa(self.E[:,:132].reshape(-1,6).detach()).reshape(self.E[:,:132].shape[0],-1).float()
 
-            # Calculate global translation
+        self.calc_results(predicted_angle)
 
-            T_head2world = self.Head_trans_global.clone()
-            T_head2root_pred = torch.eye(4).repeat(T_head2world.shape[0],1,1).cuda()
-            rotation_local_matrot = aa2matrot(torch.cat([torch.zeros([predicted_angle.shape[0],3]).cuda(),predicted_angle[...,3:66]],dim=1).reshape(-1,3)).reshape(predicted_angle.shape[0],-1,9)
-            rotation_global_matrot = local2global_pose(rotation_local_matrot, self.bm.kintree_table[0][:22].long())
-            head2root_rotation = rotation_global_matrot[:,15,:]
+    def calc_results(self, predicted_angle):
+        # Calculate global translation
+        self.Head_trans_global = self.Head_trans_global.squeeze()
+        T_head2world           = self.Head_trans_global.clone()
+        T_head2root_pred       = torch.eye(4).repeat(T_head2world.shape[0],1,1).cuda()
+        rotation_local_matrot  = aa2matrot(torch.cat([torch.zeros([predicted_angle.shape[0],3]).cuda(),predicted_angle[...,3:66]],dim=1).reshape(-1,3)).reshape(predicted_angle.shape[0],-1,9)
+        rotation_global_matrot = local2global_pose(rotation_local_matrot, self.bm.kintree_table[0][:22].long())
+        head2root_rotation     = rotation_global_matrot[:,15,:]
 
-            body_pose_local_pred=self.bm(**{'pose_body':predicted_angle[...,3:66]})
-            head2root_translation = body_pose_local_pred.Jtr[:,15,:]
-            T_head2root_pred[:,:3,:3] = head2root_rotation
-            T_head2root_pred[:,:3,3] = head2root_translation
-            t_head2world = T_head2world[:,:3,3].clone()
-            T_head2world[:,:3,3] = 0
-            T_root2world_pred = torch.matmul(T_head2world, torch.inverse(T_head2root_pred))
+        body_pose_local_pred      = self.bm(**{'pose_body':predicted_angle[...,3:66]})
+        head2root_translation     = body_pose_local_pred.Jtr[:,15,:]
+        T_head2root_pred[:,:3,:3] = head2root_rotation
+        T_head2root_pred[:,:3,3]  = head2root_translation
+        t_head2world              = T_head2world[:,:3,3].clone()
+        T_head2world[:,:3,3]      = 0
+        T_root2world_pred         = torch.matmul(T_head2world, torch.inverse(T_head2root_pred))
 
-            rotation_root2world_pred = matrot2aa(T_root2world_pred[:,:3,:3])
-            translation_root2world_pred = T_root2world_pred[:,:3,3]
-            body_pose_local=self.bm(**{'pose_body':predicted_angle[...,3:66], 'root_orient':predicted_angle[...,:3]})
-            position_global_full_local = body_pose_local.Jtr[:,:22,:]
-            t_head2root = position_global_full_local[:,15,:]
-            t_root2world = -t_head2root+t_head2world.cuda()
+        rotation_root2world_pred    = matrot2aa(T_root2world_pred[:,:3,:3])
+        translation_root2world_pred = T_root2world_pred[:,:3,3]
+        body_pose_local             = self.bm(**{'pose_body':predicted_angle[...,3:66], 'root_orient':predicted_angle[...,:3]})
+        position_global_full_local  = body_pose_local.Jtr[:,:22,:]
+        t_head2root                 = position_global_full_local[:,15,:]    # head2pelvis
+        t_root2world                = -t_head2root+t_head2world.cuda()
 
-            self.predicted_body=self.bm(**{'pose_body':predicted_angle[...,3:66], 'root_orient':predicted_angle[...,:3], 'trans': t_root2world}) 
-            # No stabilizer: 'root_orient':rotation_root2world_pred.cuda()
+        # predicted 
+        self.predicted_body        = self.bm(**{'pose_body':predicted_angle[...,3:66], 'root_orient':predicted_angle[...,:3], 'trans': t_root2world})
+        self.predicted_position    = self.predicted_body.Jtr[:,:22,:]
+        self.predicted_angle       = predicted_angle
+        self.predicted_translation = t_root2world
+        # No stabilizer: 'root_orient':rotation_root2world_pred.cuda()
 
-            self.predicted_position = self.predicted_body.Jtr[:,:22,:]
-            
-            self.predicted_angle = predicted_angle
-            self.predicted_translation = t_root2world
+        body_parms = self.P
 
+        for k,v in body_parms.items():
+            body_parms[k] = v.squeeze().cuda()
+            body_parms[k] = body_parms[k][-predicted_angle.shape[0]:,...]
 
-            body_parms = self.P
+        # GT
+        self.gt_body               = self.bm(**{k:v for k,v in body_parms.items() if k in ['pose_body','trans', 'root_orient']})
+        self.gt_position           = self.gt_body.Jtr[:,:22,:]
+        self.gt_local_angle        = body_parms['pose_body']
+        self.gt_global_translation = body_parms['trans']
+        self.gt_global_orientation = body_parms['root_orient']
 
-            for k,v in body_parms.items():
-                body_parms[k] = v.squeeze().cuda()
-                body_parms[k] = body_parms[k][-predicted_angle.shape[0]:,...]
-
-
-            self.gt_body=self.bm(**{k:v for k,v in body_parms.items() if k in ['pose_body','trans', 'root_orient']})
-            self.gt_position = self.gt_body.Jtr[:,:22,:]
-
-            self.gt_local_angle = body_parms['pose_body']
-            self.gt_global_translation = body_parms['trans']
-            self.gt_global_orientation = body_parms['root_orient']
-
-
-
-
-            self.netG.train()
+        self.netG.train()
 
     # ----------------------------------------
     # get log_dict
@@ -337,21 +345,21 @@ class ModelAvatarPoser(ModelBase):
     # ----------------------------------------
     def current_prediction(self,):
         body_parms = OrderedDict()
-        body_parms['pose_body'] = self.predicted_angle[...,3:66]
+        body_parms['pose_body']   = self.predicted_angle[...,3:66]
         body_parms['root_orient'] = self.predicted_angle[...,:3]
-        body_parms['trans'] = self.predicted_translation
-        body_parms['position'] = self.predicted_position
-        body_parms['body'] = self.predicted_body
+        body_parms['trans']       = self.predicted_translation
+        body_parms['position']    = self.predicted_position
+        body_parms['body']        = self.predicted_body
 
         return body_parms
 
     def current_gt(self, ):
         body_parms = OrderedDict()
-        body_parms['pose_body'] = self.gt_local_angle
+        body_parms['pose_body']   = self.gt_local_angle
         body_parms['root_orient'] = self.gt_global_orientation
-        body_parms['trans'] = self.gt_global_translation
-        body_parms['position'] = self.gt_position
-        body_parms['body'] = self.gt_body
+        body_parms['trans']       = self.gt_global_translation
+        body_parms['position']    = self.gt_position
+        body_parms['body']        = self.gt_body
         return body_parms
 
 

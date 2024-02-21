@@ -1,14 +1,10 @@
 import torch
 import torch.nn as nn
-from IPython import embed
-import math
+import torch.nn.functional as F
+
 from utils import utils_transform
 
-
 nn.Module.dump_patches = True
-
-
-
 
 class AvatarPoser(nn.Module):
     def __init__(self, input_dim, output_dim, num_layer, embed_dim, nhead, body_model, device):
@@ -33,16 +29,19 @@ class AvatarPoser(nn.Module):
         self.body_model = body_model
 
     @staticmethod
-    def fk_module(global_orientation, joint_rotation, body_model):
+    def fk_module(global_orientation, joint_rotation, body_model, return_verts = False):
 
         global_orientation = utils_transform.sixd2aa(global_orientation.reshape(-1,6)).reshape(global_orientation.shape[0],-1).float()
         joint_rotation = utils_transform.sixd2aa(joint_rotation.reshape(-1,6)).reshape(joint_rotation.shape[0],-1).float()
         body_pose = body_model(**{'pose_body':joint_rotation, 'root_orient':global_orientation})
         joint_position = body_pose.Jtr
-        # verts = body_pose.v
-        # faces = body_model.f
 
-        return joint_position
+        if return_verts:
+            verts = body_pose.v
+            faces = body_model.f
+            return joint_position, verts, faces
+        else:
+            return joint_position
 
 
     @staticmethod
@@ -66,18 +65,22 @@ class AvatarPoser(nn.Module):
         return body_pose
 
 
-    def forward(self, input_tensor, do_fk = True):
+    def forward(self, input_tensor, do_fk = True, return_verts = False, select_last=True):
 
 #        embed()
         x = self.linear_embedding(input_tensor)  # (batch_size, seq_len, embed_dim)
         x = x.permute(1,0,2)                     # (seq_len, batch_size, embed_dim)
         x = self.transformer_encoder(x)          # (seq_len, batch_size, embed_dim)
-        x = x.permute(1,0,2)[:, -1]              # (batch_size, embed_dim)
+        x = x.permute(1,0,2)
+        if select_last:
+            x = x[:, -1]                        # (batch_size, embed_dim)
+        else:
+            x = x[0]               # (batch_size, embed_dim)
 
         global_orientation = self.stabilizer(x)
         joint_rotation = self.joint_rotation_decoder(x)
         if do_fk:
-            joint_position = self.fk_module(global_orientation, joint_rotation, self.body_model)
+            joint_position = self.fk_module(global_orientation, joint_rotation, self.body_model, return_verts = return_verts)
             return global_orientation, joint_rotation, joint_position
         else:
             return global_orientation, joint_rotation

@@ -5,16 +5,12 @@ import torch
 import numpy as np
 from utils import utils_transform
 
-from torch.utils.data import Dataset, DataLoader
 from trdParties.human_body_prior.body_model.body_model import BodyModel
-from trdParties.human_body_prior.tools.omni_tools import copy2cpu as c2c
 from trdParties.human_body_prior.tools.rotation_tools import aa2matrot,matrot2aa,local2global_pose
 
 dataroot_amass ="amass" # root of amass dataset
 
 HEAD_POS = 15
-
-
 
 def load_body_models(support_dir='support_data/', num_betas=16, num_dmpls=8):
     # Load SMPL body models (here we load
@@ -112,7 +108,7 @@ def main(BODDY_JOINTS, out_framerate=60, num_betas=16, num_dmpls=8, support_dir=
                 # ! shape: (num_frames, 22, 3) position of joints relative to the world origin
                 position_full_gt_world  = body_pose_world.Jtr[:,:22,:] 
                 input_position_global   = position_full_gt_world[1:, BODDY_JOINTS, :]
-                input_position_relative = position_full_gt_world[1:, BODDY_JOINTS, :] - position_full_gt_world[1:, BODDY_JOINTS, :]
+                input_position_relative = position_full_gt_world[1:, BODDY_JOINTS, :] - position_full_gt_world[:-1, BODDY_JOINTS, :]
 
                 # ==== head global transformation ====
                 position_head_world    = position_full_gt_world[:,15,:] # world position of head
@@ -171,7 +167,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.joint_type == 0:
-        BODDY_JOINTS = [0,7,8,15,20,21]
+        BODDY_JOINTS = [0,7,8,15,20,21] # root, left ankle, right ankle, head, left hand, right hand
     elif args.joint_type == 1:
         BODDY_JOINTS = [15,20,21]
     else:

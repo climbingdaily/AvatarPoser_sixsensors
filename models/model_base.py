@@ -145,7 +145,7 @@ class ModelBase():
     # save the state_dict of the network
     # ----------------------------------------
     def save_network(self, save_dir, network, network_label, iter_label):
-        save_filename = '{}_{}.pth'.format(iter_label, network_label)
+        save_filename = f'{iter_label}_{network_label}.pth'
         save_path = os.path.join(save_dir, save_filename)
         network = self.get_bare_model(network)
         state_dict = network.state_dict()

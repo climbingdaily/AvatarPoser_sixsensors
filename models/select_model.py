@@ -10,9 +10,9 @@ import os
 # define training model
 # --------------------------------------------
 """
+1
 
-
-def define_Model(opt):
+def define_Trainer(opt):
     model = opt['model']      # one input: L
 
     if model == 'avatarposer':  # two inputs: L, C

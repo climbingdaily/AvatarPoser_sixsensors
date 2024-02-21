@@ -72,10 +72,10 @@ def parse(opt_path, is_train=True):
     opt['path']['task'] = path_task
     opt['path']['log'] = path_task
     opt['path']['options'] = os.path.join(path_task, 'options')
-    opt['path']['pretrained'] = opt['path']['pretrained_netG'] 
-    
+    # opt['path']['pretrained'] = opt['path']['pretrained_netG'] 
+    model_name = opt['path']['model_name'] if 'model_name' in opt['path'] else 'models'
     if is_train:
-        opt['path']['models'] = os.path.join(path_task, 'models')
+        opt['path']['models'] = os.path.join(path_task, model_name)
         opt['path']['images'] = os.path.join(path_task, 'videos')
     else:  # test
         opt['path']['images'] = os.path.join(path_task, 'test_videos')
@@ -88,9 +88,12 @@ def parse(opt_path, is_train=True):
     # ----------------------------------------
     # GPU devices
     # ----------------------------------------
-    gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
-    print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+    if opt['gpu_ids'] is not None:
+        gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
+        print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+    else:
+        print('No gpu ids provided')
 
     # ----------------------------------------
     # default setting for distributeddataparallel
@@ -99,8 +102,9 @@ def parse(opt_path, is_train=True):
         opt['find_unused_parameters'] = True
     if 'dist' not in opt:
         opt['dist'] = False
-    opt['num_gpu'] = len(opt['gpu_ids'])
-    print('number of GPUs is: ' + str(opt['num_gpu']))
+    if opt['gpu_ids'] is not None:
+        opt['num_gpu'] = len(opt['gpu_ids'])
+        print('number of GPUs is: ' + str(opt['num_gpu']))
 
     # ----------------------------------------
     # default setting for perceptual loss
@@ -174,6 +178,8 @@ def find_last_checkpoint(save_dir, net_type='G'):
         iter_exist = []
         for file_ in file_list:
             iter_current = re.findall(r"(\d+)_{}.pth".format(net_type), file_)
+            if len(iter_current) == 0:
+                continue
             iter_exist.append(int(iter_current[0]))
         init_iter = max(iter_exist)
         init_path = os.path.join(save_dir, '{}_{}.pth'.format(init_iter, net_type))

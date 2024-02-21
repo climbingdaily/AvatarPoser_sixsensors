@@ -22,73 +22,112 @@ class AMASS_Dataset(Dataset):
     """Motion Capture dataset"""
 
     def __init__(self, opt):
-        self.opt = opt
-        self.window_size = opt['window_size']
-        self.num_input = opt['num_input']
-
+        self.opt        = opt
+        self.ws         = opt['window_size']
+        self.num_input  = opt['num_input']
+        self.input_dim  = opt['input_dim']  # 108, six joints
         self.batch_size = opt['dataloader_batch_size']
-        dataroot = opt['dataroot']
-        filenames_train = os.path.join(dataroot, '*/train/*.pkl')
-        filenames_test = os.path.join(dataroot, '*/test/*.pkl')
+        self.file_path  = os.path.join(opt['dataroot'], opt['data_name'])
+        self.index_list = []
 
-# CMU,BioMotionLab_NTroje,MPI_HDM05
-        if self.opt['phase'] == 'train':
-#            self.filename_list = glob.glob('data_fps60/*/train/*.pkl')
-            self.filename_list = glob.glob(filenames_train)
+        self.load_data()
+
+    def generate_sublists(self, start, length):
+        window_size = self.ws if self.opt['phase'] == 'train' else length
+        indices = list(range(start, start + length))
+
+        if length >= window_size:
+            num_full_windows = length // window_size
+            sublists = [indices[j * window_size:(j + 1) * window_size] for j in range(num_full_windows)]
+
+            if length % window_size >= window_size / 2:
+                sublists.append(indices[-window_size:])
         else:
-#            self.filename_list = glob.glob('data_fps60/*/test/*.pkl')
-            self.filename_list = glob.glob(filenames_test)
+            # 对于长度小于window_size的情况，重复最后一个索引直到子列表长度为window_size
+            last_index = indices[-1] if indices else start  # 防止索引列表为空
+            padding    = [last_index] * (window_size - length)  # 生成填充用的索引列表
+            sublists   = [indices + padding]
 
-            print('-------------------------------number of test data is {}'.format(len(self.filename_list)))
+        all_indices = [index for sublist in sublists for index in sublist]
+    
+        return sublists, list(set(all_indices))
+
+    def load_data(self):
+        with open(self.file_path, 'rb') as f:
+            merged_data = pickle.load(f)
+        
+        data_list   = merged_data['data']
+        length_list = merged_data['lenghts']
+
+        self.data = {key: [] for key in ['rotation_local_full_gt_list', 
+                                         'input_joints_params', 
+                                         'root_orient', 'pose_body', 'trans', 'trans_vel', 
+                                         'head_global_trans_list']}
+
+        start = 0
+
+        for _, (data, lenght) in enumerate(zip(data_list, length_list)):
+
+            new_indexes, unique_indices = self.generate_sublists(start, lenght)
+            for ni in new_indexes:
+                if len(ni) > 0:
+                    self.index_list.append(ni)
+            start += len(unique_indices)
+
+            for key in ['rotation_local_full_gt_list', 'input_joints_params', 'body_parms_list', 'head_global_trans_list']:
+                indices = [i - start for i in unique_indices]
+                if key == 'body_parms_list':
+                    real_index = [i + 1 - start for i in unique_indices]
+                    self.data['root_orient'].append(data[key]['root_orient'][real_index])
+                    self.data['pose_body'].append(data[key]['pose_body'][real_index])
+                    self.data['trans'].append(data[key]['trans'][real_index])
+                    self.data['trans_vel'].append(data[key]['trans'][real_index] - data[key]['trans'][indices])
+                else:
+                    self.data[key].append(data[key][indices])
+        
+        for data in self.data:
+            self.data[data] = torch.cat(self.data[data], axis=0)
+
+        print(f'[Data loaded]: {start} frames loaded from {len(data_list)} files')
+        print(f'[Data loaded]: {len(self.index_list)} samples loaded, each with {self.ws} frames')
 
     def __len__(self):
-
-        return max(len(self.filename_list), self.batch_size)
-
+        return max(len(self.index_list), self.batch_size)
 
     def __getitem__(self, idx):
+        
+        indices = self.index_list[idx]
 
-        filename = self.filename_list[idx]
-        with open(filename, 'rb') as f:
-            data = pickle.load(f)
+        input_data      = self.data['input_joints_params'][indices].clone()
+        output_gt       = self.data['rotation_local_full_gt_list'][indices].clone()
+
+        head_trans      = self.data['head_global_trans_list'][indices].clone()
+        pelvis_vel      = self.data['trans_vel'][indices].clone()
+        pelvis_pos      = self.data['trans'][indices] - self.data['trans'][indices][:1]
+
+        head_trans[:, :3, -1] -= self.data['trans'][indices][:1]
+        # subtract the global translation from the first frame
+        if input_data.shape[1] > self.input_dim:    #input_data.shape[1] = 108 but self.input_dim = 54
+            input_data = input_data[:, np.r_[18:36, 54:72, 81:90, 99:108]]
+            input_data[:, 36:45] = (input_data[:, 36:45].reshape(-1, 3, 3) - input_data[:1, 36:39].unsqueeze(1)).reshape(-1, 9) # subtract the global translation
+        else:
+            input_data[:, 72: 90] = (input_data[:, 72:90].reshape(-1, 6, 3) - input_data[:1, 72:75].unsqueeze(1)).reshape(-1, 18) # subtract the global translation  
 
         if self.opt['phase'] == 'train':
-            while data['rotation_local_full_gt_list'].shape[0] <self.window_size:
-                idx = random.randint(0,idx)
-                filename = self.filename_list[idx]
-                with open(filename, 'rb') as f:
-                    data = pickle.load(f)
-
-        rotation_local_full_gt_list = data['rotation_local_full_gt_list']
-        input_joints_params         = data['input_joints_params' if 'input_joints_params' in data else 'hmd_position_global_full_gt_list']
-        body_parms_list             = data['body_parms_list']
-        head_global_trans_list      = data['head_global_trans_list']
-
-        if self.opt['phase'] == 'train':
-            ws = self.window_size
-            frame      = np.random.randint(input_joints_params.shape[0] - ws)
-            input_data = input_joints_params[frame:frame + ws+1,...].reshape(ws+1, -1).float()
-            output_gt  = rotation_local_full_gt_list[frame + ws - 1 : frame + ws,...].float()
-
-            return {'in': input_data,
-                    'gt': output_gt,
+            return {'in': input_data.float(),
+                    'gt': output_gt[-1:].float(),
                     'P': 1,
-                    'Head_trans_global': head_global_trans_list[frame + ws - 1:frame + ws,...],
-                    'pos_pelvis_gt'    : body_parms_list['trans'][frame + ws: frame + ws - 1,...],
-                    'vel_pelvis_gt'    : body_parms_list['trans'][frame + ws: frame + ws - 1,...] - body_parms_list['trans'][frame + ws - 1:frame + ws,...]
-                    }
+                    'Head_trans_global': head_trans[-1:].float(),
+                    'pos_pelvis_gt'    : pelvis_pos[-1:].float(),
+                    'vel_pelvis_gt'    : pelvis_vel[-1:].float()}
 
         else:
-            input_data = input_joints_params.reshape(input_joints_params.shape[0], -1)[1:]
-            output_gt  = rotation_local_full_gt_list[1:]
+            body_parms_list = {'root_orient': self.data['root_orient'][indices].clone(), 'pose_body': self.data['pose_body'][indices].clone(), 'trans': pelvis_pos.clone()}
 
             return {'in': input_data.float(),
                     'gt': output_gt.float(),
                     'P': body_parms_list,
-                    'Head_trans_global':head_global_trans_list[1:],
-                    'pos_pelvis_gt':body_parms_list['trans'][2:],
-                    'vel_pelvis_gt':body_parms_list['trans'][2:]-body_parms_list['trans'][1:-1]
+                    'Head_trans_global': head_trans.float(),
+                    'pos_pelvis_gt'    : pelvis_pos.float(),
+                    'vel_pelvis_gt'    : pelvis_vel.float()
                     }
-
-        pass
-    
