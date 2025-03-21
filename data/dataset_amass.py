@@ -98,20 +98,19 @@ class AMASS_Dataset(Dataset):
         
         indices = self.index_list[idx]
 
-        input_data      = self.data['input_joints_params'][indices].clone()
-        output_gt       = self.data['rotation_local_full_gt_list'][indices].clone()
+        input_data = self.data['input_joints_params'][indices].clone()
+        output_gt  = self.data['rotation_local_full_gt_list'][indices].clone()
 
-        head_trans      = self.data['head_global_trans_list'][indices].clone()
-        pelvis_vel      = self.data['trans_vel'][indices].clone()
-        pelvis_pos      = self.data['trans'][indices] - self.data['trans'][indices][:1]
+        head_trans = self.data['head_global_trans_list'][indices].clone()
+        pelvis_vel = self.data['trans_vel'][indices].clone()
+        pelvis_pos = self.data['trans'][indices] - self.data['trans'][indices][:1]
 
         head_trans[:, :3, -1] -= self.data['trans'][indices][:1]
-        # subtract the global translation from the first frame
-        if input_data.shape[1] > self.input_dim:    #input_data.shape[1] = 108 but self.input_dim = 54
+        input_data[:, 72: 90] = (input_data[:, 72:90].reshape(-1, 6, 3) - input_data[:1, 72:75].unsqueeze(1)).reshape(-1, 18) # subtract the global translation  
+        if input_data.shape[1] == 108 and self.input_dim == 54:    #input_data.shape[1] = 108 but self.input_dim = 54
             input_data = input_data[:, np.r_[18:36, 54:72, 81:90, 99:108]]
-            input_data[:, 36:45] = (input_data[:, 36:45].reshape(-1, 3, 3) - input_data[:1, 36:39].unsqueeze(1)).reshape(-1, 9) # subtract the global translation
-        else:
-            input_data[:, 72: 90] = (input_data[:, 72:90].reshape(-1, 6, 3) - input_data[:1, 72:75].unsqueeze(1)).reshape(-1, 18) # subtract the global translation  
+        elif input_data.shape[1] == 108 and self.input_dim == 90:
+            input_data = input_data[:, np.r_[0:18, 24:36, 36:54, 60:72, 72:81, 84:90, 90:99, 102:108]]
 
         if self.opt['phase'] == 'train':
             return {'in': input_data.float(),

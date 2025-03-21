@@ -182,16 +182,7 @@ def train(json_path='options/train_avatarposer.json'):
             gt_angle    = body_parms_gt['pose_body']
             gt_position = body_parms_gt['position']
             gt_body     = body_parms_gt['body']
-            
-            save_joint_data(os.path.join("/home/guest/Documents/EgoMotionProject/2024-02-11-20h27m50s/results/blender_file", f'{index}_joints.pkl'),
-                            torch.cat([body_parms_pred['root_orient'], body_parms_pred['pose_body']], axis=1).reshape(-1, 22, 3).detach().cpu().numpy(),
-                            model.bm, 
-                            test_data['in'][0][:, 72:90].reshape(-1, 6, 3).float().numpy())
-            save_joint_data(os.path.join("/home/guest/Documents/EgoMotionProject/2024-02-11-20h27m50s/results/blender_file", f'{index}_gt_joints.pkl'),
-                            torch.cat([body_parms_gt['root_orient'], body_parms_gt['pose_body']], axis=1).reshape(-1, 22, 3).detach().cpu().numpy(),
-                            model.bm, 
-                            test_data['in'][0][:, 72:90].reshape(-1, 6, 3).float().numpy())
-        
+
             if index in [0, 10, 20] and save_animation:
                 video_dir = os.path.join(opt['path']['images'], str(index))
                 if not os.path.exists(video_dir):
